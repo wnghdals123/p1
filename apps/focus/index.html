@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>집중 타이머</title>
+<style>
+  :root{
+    --bg:#0f1116; --panel:#171a21; --line:#262a33; --text:#e8eaed;
+    --muted:#9aa0aa; --accent:#ff6b5e; --accent2:#4a9eff; --done:#3ecf8e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg);color:var(--text);min-height:100vh;display:flex;justify-content:center}
+  .wrap{width:100%;max-width:460px;padding:32px 20px 60px}
+  h1{font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+    font-weight:600;margin:0 0 24px;text-align:center}
+  .timer{background:var(--panel);border:1px solid var(--line);border-radius:20px;
+    padding:34px 24px;text-align:center}
+  .mode{display:inline-flex;gap:6px;background:var(--bg);border:1px solid var(--line);
+    border-radius:999px;padding:4px;margin-bottom:26px}
+  .mode button{border:0;background:transparent;color:var(--muted);font-size:13px;
+    padding:6px 14px;border-radius:999px;cursor:pointer;font-weight:600}
+  .mode button.active{background:var(--accent);color:#fff}
+  .mode button.active.brk{background:var(--accent2)}
+  .clock{font-size:76px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em;
+    margin:6px 0 4px}
+  .round{color:var(--muted);font-size:13px;margin-bottom:24px}
+  .controls{display:flex;gap:10px;justify-content:center}
+  .controls button{border:0;border-radius:12px;padding:12px 22px;font-size:14px;font-weight:700;
+    cursor:pointer}
+  .primary{background:var(--text);color:#000}
+  .ghost{background:var(--bg);color:var(--text);border:1px solid var(--line)}
+  .stats{display:flex;justify-content:center;gap:26px;margin-top:22px;color:var(--muted);font-size:12px}
+  .stats b{display:block;color:var(--text);font-size:20px;font-weight:700;margin-bottom:2px}
+  .tasks{margin-top:30px}
+  .tasks h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 12px}
+  .add{display:flex;gap:8px;margin-bottom:14px}
+  .add input{flex:1;background:var(--panel);border:1px solid var(--line);color:var(--text);
+    border-radius:10px;padding:11px 13px;font-size:14px}
+  .add input:focus{outline:none;border-color:var(--accent2)}
+  .add button{background:var(--accent2);border:0;color:#fff;border-radius:10px;padding:0 16px;
+    font-size:18px;font-weight:700;cursor:pointer}
+  ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+  li{display:flex;align-items:center;gap:11px;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:11px 13px;font-size:14px}
+  li .box{width:19px;height:19px;border-radius:6px;border:2px solid var(--muted);flex-shrink:0;
+    cursor:pointer;display:grid;place-items:center}
+  li.done .box{background:var(--done);border-color:var(--done)}
+  li.done .box::after{content:"✓";color:#000;font-size:12px;font-weight:800}
+  li.done span{color:var(--muted);text-decoration:line-through}
+  li span{flex:1;cursor:pointer}
+  li .del{background:none;border:0;color:var(--muted);cursor:pointer;font-size:16px;opacity:.5}
+  li .del:hover{opacity:1;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>집중 타이머</h1>
+
+  <div class="timer">
+    <div class="mode">
+      <button id="mFocus" class="active" data-min="25">집중</button>
+      <button id="mShort" data-min="5">짧은 휴식</button>
+      <button id="mLong" data-min="15">긴 휴식</button>
+    </div>
+    <div class="clock" id="clock">25:00</div>
+    <div class="round" id="round">라운드 1 · 4라운드마다 긴 휴식</div>
+    <div class="controls">
+      <button class="primary" id="startBtn">시작</button>
+      <button class="ghost" id="resetBtn">리셋</button>
+    </div>
+    <div class="stats">
+      <div><b id="sessCount">0</b>완료한 집중</div>
+      <div><b id="minCount">0</b>집중한 분</div>
+    </div>
+  </div>
+
+  <div class="tasks">
+    <h2>오늘 할 일</h2>
+    <div class="add">
+      <input id="taskInput" placeholder="할 일 추가..." maxlength="80">
+      <button id="addBtn">+</button>
+    </div>
+    <ul id="taskList"></ul>
+  </div>
+</div>
+
+<script>
+const LS = "focus.v1";
+const state = JSON.parse(localStorage.getItem(LS) || "null") || {
+  sessions: 0, minutes: 0, day: today(), tasks: [], round: 1
+};
+if (state.day !== today()) { state.day = today(); state.sessions = 0; state.minutes = 0; state.round = 1;
+  state.tasks = state.tasks.filter(t => !t.done); }
+function today(){ return new Date().toISOString().slice(0,10); }
+function save(){ localStorage.setItem(LS, JSON.stringify(state)); }
+
+let mode = "focus", minutes = 25, remaining = 25*60, ticking = false, timer = null;
+const $ = id => document.getElementById(id);
+const clock = $("clock");
+
+function fmt(s){ const m = Math.floor(s/60), r = s%60; return String(m).padStart(2,"0")+":"+String(r).padStart(2,"0"); }
+function render(){
+  clock.textContent = fmt(remaining);
+  document.title = (ticking ? fmt(remaining)+" · " : "") + "집중 타이머";
+  $("sessCount").textContent = state.sessions;
+  $("minCount").textContent = state.minutes;
+  $("round").textContent = `라운드 ${state.round} · 4라운드마다 긴 휴식`;
+  $("startBtn").textContent = ticking ? "일시정지" : "시작";
+}
+function setMode(m, min, btn){
+  mode = m; minutes = min; remaining = min*60; stop();
+  document.querySelectorAll(".mode button").forEach(b=>b.classList.remove("active","brk"));
+  btn.classList.add("active"); if(m!=="focus") btn.classList.add("brk");
+  render();
+}
+$("mFocus").onclick = e => setMode("focus", 25, e.target);
+$("mShort").onclick = e => setMode("short", 5, e.target);
+$("mLong").onclick  = e => setMode("long", 15, e.target);
+
+function stop(){ ticking = false; clearInterval(timer); timer = null; render(); }
+function start(){
+  if (ticking){ stop(); return; }
+  ticking = true; render();
+  timer = setInterval(()=>{
+    remaining--;
+    if (remaining <= 0){ complete(); }
+    render();
+  }, 1000);
+}
+function complete(){
+  stop();
+  try { beep(); } catch(e){}
+  if (mode === "focus"){
+    state.sessions++; state.minutes += minutes;
+    state.round = state.round >= 4 ? 1 : state.round + 1;
+    save();
+    const next = state.round === 1 ? $("mLong") : $("mShort");
+    setMode(next === $("mLong") ? "long" : "short", next === $("mLong") ? 15 : 5, next);
+  } else {
+    setMode("focus", 25, $("mFocus"));
+  }
+}
+function beep(){
+  const ctx = new (window.AudioContext||window.webkitAudioContext)();
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.connect(g); g.connect(ctx.destination);
+  o.frequency.value = 880; g.gain.value = 0.15;
+  o.start(); o.frequency.exponentialRampToValueAtTime(440, ctx.currentTime+0.4);
+  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.5);
+  o.stop(ctx.currentTime+0.5);
+}
+$("startBtn").onclick = start;
+$("resetBtn").onclick = ()=>{ remaining = minutes*60; stop(); };
+
+// tasks
+function renderTasks(){
+  const ul = $("taskList"); ul.innerHTML = "";
+  state.tasks.forEach((t, i)=>{
+    const li = document.createElement("li");
+    if (t.done) li.className = "done";
+    li.innerHTML = `<div class="box"></div><span>${escapeHtml(t.text)}</span><button class="del">✕</button>`;
+    li.querySelector(".box").onclick = () => { t.done = !t.done; save(); renderTasks(); };
+    li.querySelector("span").onclick = () => { t.done = !t.done; save(); renderTasks(); };
+    li.querySelector(".del").onclick = () => { state.tasks.splice(i,1); save(); renderTasks(); };
+    ul.appendChild(li);
+  });
+}
+function escapeHtml(s){ return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function addTask(){
+  const v = $("taskInput").value.trim();
+  if (!v) return;
+  state.tasks.push({ text: v, done: false });
+  $("taskInput").value = ""; save(); renderTasks();
+}
+$("addBtn").onclick = addTask;
+$("taskInput").addEventListener("keydown", e => { if (e.key === "Enter") addTask(); });
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" && e.target.tagName !== "INPUT"){ e.preventDefault(); start(); }
+});
+
+renderTasks(); render();
+</script>
+</body>
+</html>

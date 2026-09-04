@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>만화경 페인트</title>
+<style>
+  html,body{margin:0;height:100%;background:#0a0a0f;overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  canvas{display:block;cursor:crosshair}
+  .bar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);
+    display:flex;gap:8px;align-items:center;background:rgba(20,20,28,.82);
+    border:1px solid #2a2a38;border-radius:999px;padding:8px 10px;
+    backdrop-filter:blur(8px);color:#cfd2da;font-size:12px}
+  .bar button{background:#20202c;border:1px solid #33333f;color:#e8eaed;
+    border-radius:999px;padding:7px 13px;font-size:12px;font-weight:600;cursor:pointer}
+  .bar button:hover{background:#2c2c3a}
+  .bar label{display:flex;align-items:center;gap:6px;white-space:nowrap}
+  .bar input[type=range]{width:78px;accent-color:#ff6b5e}
+  .hint{position:fixed;left:50%;top:16px;transform:translateX(-50%);
+    color:#5a5a68;font-size:12px;letter-spacing:.03em;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hint" id="hint">마우스를 움직여 그리세요 · 클릭 유지하면 진하게</div>
+<div class="bar">
+  <label>대칭 <input type="range" id="sym" min="2" max="16" step="2" value="8"><b id="symV">8</b></label>
+  <label>굵기 <input type="range" id="size" min="1" max="24" value="6"></label>
+  <button id="rainbow">무지개: 켬</button>
+  <button id="clear">지우기</button>
+  <button id="save">PNG 저장</button>
+</div>
+<script>
+const c = document.getElementById("c"), x = c.getContext("2d");
+let W, H, cx, cy;
+function resize(){
+  W = c.width = innerWidth; H = c.height = innerHeight;
+  cx = W/2; cy = H/2;
+}
+resize();
+addEventListener("resize", resize);
+
+let sym = 8, size = 6, rainbow = true, hue = 0;
+let last = null, drawing = false;
+
+const symEl = document.getElementById("sym"), symV = document.getElementById("symV");
+symEl.oninput = () => { sym = +symEl.value; symV.textContent = sym; };
+document.getElementById("size").oninput = e => size = +e.target.value;
+document.getElementById("rainbow").onclick = e => {
+  rainbow = !rainbow; e.target.textContent = "무지개: " + (rainbow ? "켬" : "끔");
+};
+document.getElementById("clear").onclick = () => x.clearRect(0,0,W,H);
+document.getElementById("save").onclick = () => {
+  const a = document.createElement("a");
+  a.download = "kaleido-" + Date.now() + ".png";
+  a.href = c.toDataURL("image/png");
+  a.click();
+};
+
+function stroke(x1,y1,x2,y2){
+  const col = rainbow ? `hsl(${hue}, 85%, 62%)` : "#e8eaed";
+  x.strokeStyle = col;
+  x.lineWidth = size;
+  x.lineCap = "round";
+  x.globalCompositeOperation = "lighter";
+  for (let i = 0; i < sym; i++){
+    const a = (Math.PI * 2 / sym) * i;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const rx1 = (x1-cx)*ca - (y1-cy)*sa + cx;
+    const ry1 = (x1-cx)*sa + (y1-cy)*ca + cy;
+    const rx2 = (x2-cx)*ca - (y2-cy)*sa + cx;
+    const ry2 = (x2-cx)*sa + (y2-cy)*ca + cy;
+    x.beginPath(); x.moveTo(rx1,ry1); x.lineTo(rx2,ry2); x.stroke();
+    // mirrored
+    x.beginPath();
+    x.moveTo(2*cx-rx1, ry1); x.lineTo(2*cx-rx2, ry2); x.stroke();
+  }
+  hue = (hue + 2) % 360;
+}
+
+function pos(e){
+  const t = e.touches ? e.touches[0] : e;
+  return [t.clientX, t.clientY];
+}
+c.addEventListener("mousemove", e => {
+  const [px,py] = pos(e);
+  if (last){
+    const boost = drawing ? 1 : 0.4;
+    const oldSize = size; size = size * boost;
+    stroke(last[0], last[1], px, py);
+    size = oldSize;
+  }
+  last = [px,py];
+  document.getElementById("hint").style.opacity = 0;
+});
+c.addEventListener("mousedown", () => drawing = true);
+addEventListener("mouseup", () => drawing = false);
+c.addEventListener("mouseleave", () => last = null);
+
+c.addEventListener("touchmove", e => {
+  e.preventDefault();
+  const [px,py] = pos(e);
+  if (last) stroke(last[0], last[1], px, py);
+  last = [px,py];
+}, {passive:false});
+c.addEventListener("touchend", () => last = null);
+</script>
+</body>
+</html>
